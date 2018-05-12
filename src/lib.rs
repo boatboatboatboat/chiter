@@ -1,100 +1,113 @@
-#[macro_export]
-/// Creates a function from an address where:
-/// $addy = function address
-/// $res = return type
-/// $(arg)* = argument types
-/// Example:
-/// ```rust
-/// // in C: int foo() { return 1; }
-/// make_func!(address_of_foo, isize, )
-/// // in C: int bar(int baz, int foobar) { return baz + foobar; }
-/// make_func!(address_of_bar, isize, isize, isize)
+/// A macro to convert a pointer into a function
+///
+/// # Example:
+/// ```c
+/// // This code is in C.
+/// int add_one(int thing) {
+///     return thing + 1;
+/// }
 /// ```
-macro_rules! make_func {
-    ($addy:expr, $res:ty, $($arg:ty),*) => {
-        std::mem::transmute::<*const usize, fn($($arg,)*) -> $res>($addy as *const usize)
+/// ```rust
+/// // This code is in Rust. 0xDEADBEEF is the address where add_one starts.
+/// let add_one = unsafe { make_fn!(0xDEADBEEF, i32, i32) };
+///
+/// assert_eq!(add_one(400), 401);
+/// ```
+#[macro_export]
+macro_rules! make_fn {
+    ($address:expr, $returntype:ty) => {
+        std::mem::transmute::<*const usize, fn() -> $returntype>($address as *const usize)
+    };
+    ($address:expr, $returntype:ty, $($argument:ty),*) => {
+        std::mem::transmute::<*const usize, fn($($argument,)*) -> $returntype>($address as *const usize)
     }
 }
 
-// an enum for endianess
-pub enum Endian { Big, Little }
-
-pub struct memory {
-    end: Endian
+/// A macro to write rust-usable pointers in a somewhat nicer way
+///
+/// # Example:
+///
+/// ```rust
+/// ptr!(0xDEADBEEF, u8) = 255
+/// ```
+#[macro_export]
+macro_rules! ptr {
+    ($address:expr, $type:ty) => {
+        *($address as *mut $type)
+    }
 }
 
-impl Memory {
-    /// Returns a struct thing with all the functions, prepared w/ endianess.
-    pub fn new(endian: Endian) -> Memory {
-        Memory {end: endian}
+pub enum SearchError {
+    NotFound,
+    FromGreaterThanTo
+}
+
+/// Reads 'length' bytes starting at 'address', returns a Vec<u8> with all the bytes.
+pub fn read_bytes(address: usize, length: usize) -> Vec<u8> {
+    let mut result = Vec::<u8>::new();
+    for index in (0..length).rev() {
+        unsafe { result.push(ptr!(address + index, u8)) }
     }
-    // Reads "length" amount of bytes starting at address.
-    pub fn read_bytes(&self, address: usize, length: usize) -> Vec<u8> {
-        let mut result = Vec::<u8>::new(); //TURBO
-        let mut i; // we know we're going to index it rn.
-        match self.end {
-            Endian::Big => {
-                i = 0;
-                while i <= length {
-                    unsafe { result.push(*((address + i) as *const u8)) };
-                    i += 1;
-                }
-            },
-            Endian::Little => {
-                i = 1;
-                while i <= length {
-                    unsafe { result.push(*((address + length - i) as *const u8)) };
-                    i += 1;
-                }
-            }
-        }
-        result
+    result
+}
+
+/// Writes 'bytes' starting at 'address'
+pub fn write_bytes(address: usize, bytes: &[u8]) {
+    for (index, byte) in bytes.into_iter().enumerate() {
+        unsafe { ptr!(address + index, u8) = *byte};
     }
-    // Writes bytes, starting at address.
-    pub fn write_bytes(&self, address: usize, bytes: &[u8]) {
-        let length = bytes.len();
-        let mut i;
-        match self.end {
-            Endian::Big => {
-                i = 1; // this should fix it LOL
-                for byte in bytes.into_iter() {
-                    println!("GenAddr: {:x}", unsafe { *((address + i) as *mut u8) });
-                    println!("GenByte: {:x}", *byte);
-                    unsafe { *((address + i) as *mut u8) = *byte };
-                    i += 1;
-                }
-            },
-            Endian::Little => {
-                i = 1;
-                for byte in bytes.into_iter() {
-                    unsafe { *((address + length - i) as *mut u8) = *byte };
-                    i += 1;
-                }
-            }
-        }
+}
+
+/// Searches for a pattern and stops at the first occurence, where:
+///
+/// ``pattern`` is the pattern to search for,
+///
+/// ``from`` is the address to start searching from,
+///
+/// ``to`` is the address to stop searching at,
+///
+/// and ``wildcard`` is the byte in pattern to ignore.
+pub fn search_first(pattern: &[u8], from: usize, to: usize, wildcard: u8) -> Result<usize, SearchError>  {
+    if from > to {
+        return Err(SearchError::FromGreaterThanTo);
     }
-    /// Searches for a matching pattern between the addresses "from" and "to".
-    pub fn search(&self, pattern: &[u8], from: usize, to: usize, wildcard: u8) -> usize {
-        if from >= to {
-            panic!("the from address is higher than the to address");
-        }
-        let length = pattern.len() - 1;
-        for position in from..to {
-            let bytes = self.read_bytes(position, length);
-            let mut p = 0;
-            for byte in &bytes {
-                if pattern[p] == wildcard {
-                    p += 1;
-                    continue
-                }
-                if byte != &pattern[p] {
-                    break
-                } else if p == length {
-                    return position - 1
-                }
+    let length = pattern.len() - 1;
+    for position in from..to {
+        let bytes = read_bytes(position, length);
+        let mut p = 0;
+        for byte in &bytes {
+            if pattern[p] == wildcard {
                 p += 1;
+                continue
             }
+            if byte != &pattern[p] {
+                break
+            } else if p == length {
+                return Ok(position)
+            }
+            p += 1;
         }
-        0
+    }
+    Err(SearchError::NotFound)
+}
+
+/// Searches for a pattern and returns all occurrences.
+///
+/// Read search_first for further information.
+///
+/// Take note that the _last_ occurrence is at the top of the vector.
+pub fn search(pattern: &[u8], from: usize, to: usize, wildcard: u8) -> Result<Vec<usize>, SearchError> {
+    if from > to {
+        return Err(SearchError::FromGreaterThanTo);
+    }
+    let mut result = Vec::<usize>::new();
+    let mut start = from;
+    loop {
+        if let Ok(position) = search_first(pattern.clone(), start, to, wildcard) {
+            result.push(position);
+            start = position + 1;
+        } else {
+            return Ok(result);
+        }
     }
 }
