@@ -44,18 +44,52 @@ pub enum SearchError {
 
 /// Reads 'length' bytes starting at 'address', returns a Vec<u8> with all the bytes.
 pub fn read_bytes(address: usize, length: usize) -> Vec<u8> {
-    let mut result = Vec::<u8>::new();
-    for index in (0..length).rev() {
-        unsafe { result.push(ptr!(address + index, u8)) }
-    }
+    let result = read_object::<Vec<u8>>(address, length);
     result
 }
 
 /// Writes 'bytes' starting at 'address'
 pub fn write_bytes(address: usize, bytes: &[u8]) {
-    for (index, byte) in bytes.into_iter().enumerate() {
-        unsafe { ptr!(address + index, u8) = *byte};
+    write_object(address, bytes.to_vec())
+}
+
+
+///writes an Value to the specified adress
+/// 
+/// # Arguments
+/// 
+/// * `address` Address of the starting point of the Value
+/// * `Object` An object that implements Into<Vec<u8>>
+/// 
+/// # Example
+/// ```
+/// //remember, sample_object can be any type that implements Into<Vec<u8>>
+/// write_object(0x6473AA4, sample_object)
+/// ```
+pub fn write_object<T: Into<Vec<u8>>>(address: usize,object: T){
+    let vector = object.into();
+    for (idx, byte) in vector.into_iter().enumerate(){
+        unsafe { ptr!(address + idx, u8) = byte};
     }
+}
+
+///Reads an Value from the specified adress
+/// 
+/// # Arguments
+/// 
+/// * `address` Address of the starting point of the Value
+/// * `length` Size of the Value. Note that this is not actually the size of the value, but the size of bytes needed for the From::from conversion
+/// 
+/// # Example
+/// ```
+/// let data_array = read_object<Vec<u8>>(0x6473AA4, 24);
+/// ```
+pub fn read_object<T: From<Vec<u8>>>(address: usize, length: usize) -> T {
+    let mut result = Vec::<u8>::new();
+    for index in (0..length).rev() {
+        unsafe { result.push(ptr!(address + index, u8)) }
+    }
+    T::from(result)
 }
 
 /// Searches for a pattern and stops at the first occurence, where:
