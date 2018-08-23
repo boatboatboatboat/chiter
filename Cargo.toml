@@ -1,7 +1,10 @@
 [package]
 name = "chiter"
-version = "0.3.0"
-authors = ["boat <boat@cock.li>"]
+version = "0.4.0"
+authors = ["boat <boat@cock.li>", "Fabian Brand <fabian@fabianbrand.de>"]
 description = "Memory editing library aimed at game hacking."
 repository = "https://github.com/boatboatboatboat/chiter"
 license = "MIT"
+
+[target.'cfg(windows)'.dependencies]
+winapi = "0.3.5"

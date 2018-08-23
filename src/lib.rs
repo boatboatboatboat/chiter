@@ -1,3 +1,6 @@
+#[cfg(target_os = "windows")]
+extern crate winapi;
+
 /// A macro to convert a pointer into a function
 ///
 /// # Example:
@@ -34,12 +37,39 @@ macro_rules! make_fn {
 macro_rules! ptr {
     ($address:expr, $type:ty) => {
         *($address as *mut $type)
-    }
+    };
+}
+
+/// A macro to create a DLL-Entrypoint for Windowsbinaries
+/// It takes a function to call after the injection
+///
+/// # Example:
+/// ```rust
+/// fn injected(){
+///     ...
+/// }
+/// make_entrypoint!(injected);
+/// ```
+#[cfg(windows)]
+#[macro_export]
+macro_rules! make_entrypoint {
+    ($fn:expr) => {
+        #[no_mangle]
+        pub extern "stdcall" fn DllMain(
+            _hinst_dll: winapi::shared::minwindef::HINSTANCE,
+            fdw_reason: u32,
+            _: *mut winapi::ctypes::c_void,
+        ) {
+            if fdw_reason == 1 {
+                thread::spawn($fn);
+            }
+        }
+    };
 }
 
 pub enum SearchError {
     NotFound,
-    FromGreaterThanTo
+    FromGreaterThanTo,
 }
 
 /// Reads 'length' bytes starting at 'address', returns a Vec<u8> with all the bytes.
@@ -53,33 +83,32 @@ pub fn write_bytes(address: usize, bytes: &[u8]) {
     write_object(address, bytes.to_vec())
 }
 
-
 ///writes an Value to the specified adress
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `address` Address of the starting point of the Value
 /// * `Object` An object that implements Into<Vec<u8>>
-/// 
+///
 /// # Example
 /// ```
 /// //remember, sample_object can be any type that implements Into<Vec<u8>>
 /// write_object(0x6473AA4, sample_object)
 /// ```
-pub fn write_object<T: Into<Vec<u8>>>(address: usize,object: T){
+pub fn write_object<T: Into<Vec<u8>>>(address: usize, object: T) {
     let vector = object.into();
-    for (idx, byte) in vector.into_iter().enumerate(){
-        unsafe { ptr!(address + idx, u8) = byte};
+    for (idx, byte) in vector.into_iter().enumerate() {
+        unsafe { ptr!(address + idx, u8) = byte };
     }
 }
 
 ///Reads an Value from the specified adress
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `address` Address of the starting point of the Value
 /// * `length` Size of the Value. Note that this is not actually the size of the value, but the size of bytes needed for the From::from conversion
-/// 
+///
 /// # Example
 /// ```
 /// let data_array = read_object<Vec<u8>>(0x6473AA4, 24);
@@ -101,7 +130,12 @@ pub fn read_object<T: From<Vec<u8>>>(address: usize, length: usize) -> T {
 /// ``to`` is the address to stop searching at,
 ///
 /// and ``wildcard`` is the byte in pattern to ignore.
-pub fn search_first(pattern: &[u8], from: usize, to: usize, wildcard: u8) -> Result<usize, SearchError>  {
+pub fn search_first(
+    pattern: &[u8],
+    from: usize,
+    to: usize,
+    wildcard: u8,
+) -> Result<usize, SearchError> {
     if from > to {
         return Err(SearchError::FromGreaterThanTo);
     }
@@ -112,12 +146,12 @@ pub fn search_first(pattern: &[u8], from: usize, to: usize, wildcard: u8) -> Res
         for byte in &bytes {
             if pattern[p] == wildcard {
                 p += 1;
-                continue
+                continue;
             }
             if byte != &pattern[p] {
-                break
+                break;
             } else if p == length {
-                return Ok(position)
+                return Ok(position);
             }
             p += 1;
         }
@@ -130,7 +164,12 @@ pub fn search_first(pattern: &[u8], from: usize, to: usize, wildcard: u8) -> Res
 /// Read search_first for further information.
 ///
 /// Take note that the _last_ occurrence is at the top of the vector.
-pub fn search(pattern: &[u8], from: usize, to: usize, wildcard: u8) -> Result<Vec<usize>, SearchError> {
+pub fn search(
+    pattern: &[u8],
+    from: usize,
+    to: usize,
+    wildcard: u8,
+) -> Result<Vec<usize>, SearchError> {
     if from > to {
         return Err(SearchError::FromGreaterThanTo);
     }
