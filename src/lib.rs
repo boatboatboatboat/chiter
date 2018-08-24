@@ -109,6 +109,28 @@ macro_rules! make_entrypoint {
     };
 }
 
+
+/// A macro to create a DLL-Entrypoint for Linuxbinaries
+/// It takes a function to call after the injection
+/// The function prototype must be extern "C" fn()
+///
+/// # Example:
+/// ```rust
+/// pub extern "C" fn injected() {
+///     ...
+/// }
+/// make_entrypoint!(injected);
+/// ```
+/// Taken from https://github.com/oberien/refunct-tas/blob/master/rtil/src/native/linux/mod.rs#L13-L17
+#[cfg(linux)]
+#[macro_export]
+macro_rules! make_entrypoint {
+    ($fn:expr) => {
+        #[link_section=".init_array"]
+        pub static INITIALIZE_CTOR: extern "C" fn() = $fn;   
+    }
+}
+
 pub enum SearchError {
     NotFound,
     FromGreaterThanTo,
@@ -116,8 +138,7 @@ pub enum SearchError {
 
 /// Reads 'length' bytes starting at 'address', returns a Vec<u8> with all the bytes.
 pub fn read_bytes(address: usize, length: usize) -> Vec<u8> {
-    let result = read_object::<Vec<u8>>(address, length);
-    result
+    read_object::<Vec<u8>>(address, length)
 }
 
 /// Writes 'bytes' starting at 'address'
@@ -218,7 +239,7 @@ pub fn search(
     let mut result = Vec::<usize>::new();
     let mut start = from;
     loop {
-        if let Ok(position) = search_first(pattern.clone(), start, to, wildcard) {
+        if let Ok(position) = search_first(pattern, start, to, wildcard) {
             result.push(position);
             start = position + 1;
         } else {
