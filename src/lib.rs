@@ -80,7 +80,6 @@ macro_rules! make_entrypoint {
 /// make_entrypoint!(injected);
 /// ```
 /// Taken from https://github.com/oberien/refunct-tas/blob/master/rtil/src/native/linux/mod.rs#L13-L17
-#[cfg(windows)]
 #[cfg(linux)]
 #[macro_export]
 macro_rules! make_entrypoint {
