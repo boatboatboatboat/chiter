@@ -60,6 +60,7 @@ macro_rules! make_fn {
 /// assert_eq!(get_random_number(), 4);
 /// ```
 // TO-DO: fix "unexpected end of macro invocation" when ending with a ;
+#[macro_export]
 macro_rules! make_functions {
     ( $( $address:expr; fn $fn_name:ident( $($argument:ty),* ) -> $returntype:ty);* ) => {
         $(
