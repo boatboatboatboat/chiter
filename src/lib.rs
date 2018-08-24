@@ -26,6 +26,48 @@ macro_rules! make_fn {
     }
 }
 
+/// A macro to convert multiple pointers into functions
+///
+/// take note: untested
+///
+/// # Example:
+/// ```c
+/// // This code is in C.
+/// int add_one(int thing) {
+///     return thing + 1;
+/// }
+///
+/// int get_random_number() {
+///     return 4;
+/// }
+/// ```
+/// ```rust
+/// // This code is in Rust.
+/// // 0xDEADBEEF is the address where add_one starts,
+/// // and 0x0DEADBEEF + 70 is the address where get_random_number starts.
+///
+/// let add_one;
+/// let get_random_number;
+///
+/// unsafe {
+///     make_functions! {
+///         0xDEADBEEF; fn add_one(i32) -> i32;
+///         0xDEADBEEF + 70; fn get_random_number() -> i32
+///     }
+/// }
+///
+/// assert_eq!(add_one(400), 401);
+/// assert_eq!(get_random_number(), 4);
+/// ```
+// TO-DO: fix "unexpected end of macro invocation" when ending with a ;
+macro_rules! make_functions {
+    ( $( $address:expr; fn $fn_name:ident( $($argument:ty),* ) -> $returntype:ty);* ) => {
+        $(
+            $fn_name = std::mem::transmute::<*const usize, fn( $($argument),* ) -> $returntype>($address as *const usize);
+        );*
+    }
+}
+
 /// A macro to write rust-usable pointers in a somewhat nicer way
 ///
 /// # Example:
@@ -83,7 +125,7 @@ pub fn write_bytes(address: usize, bytes: &[u8]) {
     write_object(address, bytes.to_vec())
 }
 
-///writes an Value to the specified adress
+///writes an Value to the specified address
 ///
 /// # Arguments
 ///
@@ -102,7 +144,7 @@ pub fn write_object<T: Into<Vec<u8>>>(address: usize, object: T) {
     }
 }
 
-///Reads an Value from the specified adress
+///Reads an Value from the specified address
 ///
 /// # Arguments
 ///
@@ -121,7 +163,7 @@ pub fn read_object<T: From<Vec<u8>>>(address: usize, length: usize) -> T {
     T::from(result)
 }
 
-/// Searches for a pattern and stops at the first occurence, where:
+/// Searches for a pattern and stops at the first occurrence, where:
 ///
 /// ``pattern`` is the pattern to search for,
 ///
@@ -180,6 +222,9 @@ pub fn search(
             result.push(position);
             start = position + 1;
         } else {
+            if result.len() == 0 {
+                return Err(SearchError::NotFound);
+            }
             return Ok(result);
         }
     }
