@@ -1,6 +1,6 @@
 #[cfg(target_os = "windows")]
 extern crate winapi;
-
+extern crate kernel32;
 /// A macro to convert a pointer into a function
 ///
 /// # Example:
@@ -67,7 +67,6 @@ macro_rules! make_entrypoint {
     };
 }
 
-
 /// A macro to create a DLL-Entrypoint for Linuxbinaries
 /// It takes a function to call after the injection
 /// The function prototype must be extern "C" fn()
@@ -80,14 +79,13 @@ macro_rules! make_entrypoint {
 /// make_entrypoint!(injected);
 /// ```
 /// Taken from https://github.com/oberien/refunct-tas/blob/master/rtil/src/native/linux/mod.rs#L13-L17
-#[cfg(windows)]
 #[cfg(linux)]
 #[macro_export]
 macro_rules! make_entrypoint {
     ($fn:expr) => {
-        #[link_section=".init_array"]
-        pub static INITIALIZE_CTOR: extern "C" fn() = $fn;   
-    }
+        #[link_section = ".init_array"]
+        pub static INITIALIZE_CTOR: extern "C" fn() = $fn;
+    };
 }
 
 pub enum SearchError {
@@ -204,5 +202,69 @@ pub fn search(
         } else {
             return Ok(result);
         }
+    }
+}
+
+pub struct VTable<'a> {
+    //Location of the VTable
+    adress: usize,
+    //Count of entries in VTable
+    size: usize,
+    //Internal representation of the Vtableentries
+    representation: &'a mut [usize],
+}
+
+#[cfg(windows)]
+impl<'a> VTable<'a> {
+    ///Creates a new VTable-instance for Windows
+    ///
+    /// ```adress``` is the adress of the vtable, make sure to resolve the pointer to the vtable and not just pass the class inst
+    /// ```size``` is the amount of functions held in the vtable
+    pub fn new(adress: usize, size: usize) -> VTable<'a> {
+        VTable {
+            adress: adress,
+            size: size,
+            representation: unsafe{std::slice::from_raw_parts_mut(adress as *mut usize, size)},
+        }
+    }
+
+
+    ///Swaps a vtable entry at the specified index
+    /// ```index``` is the index the targeted function is at
+    /// ```to_replace``` is a pointer to the function you would to inject
+    /// returns the adress of the original function, so you can call it
+    pub fn hook(&mut self, index: usize, to_replace: usize) -> Result<usize, std::string::String>{
+
+        if index >= self.size{
+            let error_msg: std::string::String = format!("Tried to access out of bound index {} while max was {}", index, self.size - 1);
+            return Err(error_msg)
+        }
+
+        const PAGE_EXECUTE_READWRITE: u32 = 64;
+        let mut old_protect = 0u32;
+        let mut new_protect = 0u32;
+        //Allowing to write to vtable
+        unsafe {
+            kernel32::VirtualProtect(
+                self.adress as *mut std::ffi::c_void,
+                0x400,
+                PAGE_EXECUTE_READWRITE,
+                &mut old_protect,
+            );
+        }
+        let orig_adress = self.representation[index];
+
+        self.representation[index] = to_replace;
+
+        unsafe {
+            kernel32::VirtualProtect(
+                self.adress as *mut std::ffi::c_void,
+                0x400,
+                old_protect,
+                &mut new_protect,
+            );
+        }
+
+        Ok(orig_adress)
     }
 }
