@@ -1,12 +1,24 @@
 #[cfg(test)]
-mod macro_tests{
-
+mod macro_tests {
+    #[macro_use]
+    use crate as chiter;
+    #[test]
+    fn test_functions() {
+        let add_one;
+        let get_random_number;
+        unsafe {
+            chiter::make_functions! {
+                0xDEADBEEF; fn add_one(i32) -> i32;
+                0xDEADBEEFu32 + 70; fn get_random_number() -> i32;
+            }
+        }
+    }
 }
 
 #[cfg(target_os = "windows")]
-extern crate winapi;
-#[cfg(target_os = "windows")]
 extern crate kernel32;
+#[cfg(target_os = "windows")]
+extern crate winapi;
 /// A macro to convert a pointer into a function
 ///
 /// # Example:
@@ -68,7 +80,7 @@ macro_rules! make_fn {
 // TO-DO: fix "unexpected end of macro invocation" when ending with a ;
 #[macro_export]
 macro_rules! make_functions {
-    ( $( $address:expr; fn $fn_name:ident( $($argument:ty),* ) -> $returntype:ty);* ) => {
+    ( $( $address:expr; fn $fn_name:ident( $($argument:ty),* ) -> $returntype:ty);* ;) => {
         $(
             $fn_name = std::mem::transmute::<*const usize, fn( $($argument),* ) -> $returntype>($address as *const usize);
         );*
@@ -277,20 +289,22 @@ impl<'a> VTable<'a> {
         VTable {
             adress: adress,
             size: size,
-            representation: unsafe{std::slice::from_raw_parts_mut(adress as *mut usize, size)},
+            representation: unsafe { std::slice::from_raw_parts_mut(adress as *mut usize, size) },
         }
     }
-
 
     ///Swaps a vtable entry at the specified index
     /// ```index``` is the index the targeted function is at
     /// ```to_replace``` is a pointer to the function you would to inject
     /// returns the adress of the original function, so you can call it
-    pub fn hook(&mut self, index: usize, to_replace: usize) -> Result<usize, std::string::String>{
-
-        if index >= self.size{
-            let error_msg: std::string::String = format!("Tried to access out of bound index {} while max was {}", index, self.size - 1);
-            return Err(error_msg)
+    pub fn hook(&mut self, index: usize, to_replace: usize) -> Result<usize, std::string::String> {
+        if index >= self.size {
+            let error_msg: std::string::String = format!(
+                "Tried to access out of bound index {} while max was {}",
+                index,
+                self.size - 1
+            );
+            return Err(error_msg);
         }
 
         const PAGE_EXECUTE_READWRITE: u32 = 64;
