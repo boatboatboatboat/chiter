@@ -1,5 +1,11 @@
+#[cfg(test)]
+mod macro_tests{
+
+}
+
 #[cfg(target_os = "windows")]
 extern crate winapi;
+#[cfg(target_os = "windows")]
 extern crate kernel32;
 /// A macro to convert a pointer into a function
 ///
