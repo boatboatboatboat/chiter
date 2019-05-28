@@ -5,6 +5,7 @@ authors = ["boat <boat@cock.li>", "Fabian Brand <fabian@fabianbrand.de>"]
 description = "Memory editing library aimed at game hacking."
 repository = "https://github.com/boatboatboatboat/chiter"
 license = "MIT"
+edition = "2018"
 
 [target.'cfg(windows)'.dependencies]
 winapi = "0.3.6"
