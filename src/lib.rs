@@ -257,6 +257,7 @@ pub fn search(
     }
 }
 
+#[cfg(windows)]
 pub struct VTable<'a> {
     //Location of the VTable
     adress: usize,
