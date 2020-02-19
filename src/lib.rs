@@ -1,136 +1,27 @@
-#[cfg(target_os = "windows")]
-extern crate winapi;
-
-/// A macro to convert a pointer into a function
-///
-/// # Example:
-/// ```c
-/// // This code is in C.
-/// int add_one(int thing) {
-///     return thing + 1;
-/// }
-/// ```
-/// ```rust
-/// // This code is in Rust. 0xDEADBEEF is the address where add_one starts.
-/// let add_one = unsafe { make_fn!(0xDEADBEEF, i32, i32) };
-///
-/// assert_eq!(add_one(400), 401);
-/// ```
-#[macro_export]
-macro_rules! make_fn {
-    ($address:expr, $returntype:ty) => {
-        std::mem::transmute::<*const usize, fn() -> $returntype>($address as *const usize)
-    };
-    ($address:expr, $returntype:ty, $($argument:ty),*) => {
-        std::mem::transmute::<*const usize, fn($($argument,)*) -> $returntype>($address as *const usize)
-    }
-}
-
-/// A macro to convert multiple pointers into functions
-///
-/// take note: untested
-///
-/// # Example:
-/// ```c
-/// // This code is in C.
-/// int add_one(int thing) {
-///     return thing + 1;
-/// }
-///
-/// int get_random_number() {
-///     return 4;
-/// }
-/// ```
-/// ```rust
-/// // This code is in Rust.
-/// // 0xDEADBEEF is the address where add_one starts,
-/// // and 0x0DEADBEEF + 70 is the address where get_random_number starts.
-///
-/// let add_one;
-/// let get_random_number;
-///
-/// unsafe {
-///     make_functions! {
-///         0xDEADBEEF; fn add_one(i32) -> i32;
-///         0xDEADBEEF + 70; fn get_random_number() -> i32
-///     }
-/// }
-///
-/// assert_eq!(add_one(400), 401);
-/// assert_eq!(get_random_number(), 4);
-/// ```
-// TO-DO: fix "unexpected end of macro invocation" when ending with a ;
-#[macro_export]
-macro_rules! make_functions {
-    ( $( $address:expr; fn $fn_name:ident( $($argument:ty),* ) -> $returntype:ty);* ) => {
-        $(
-            $fn_name = std::mem::transmute::<*const usize, fn( $($argument),* ) -> $returntype>($address as *const usize);
-        );*
-    }
-}
-
-/// A macro to write rust-usable pointers in a somewhat nicer way
-///
-/// # Example:
-///
-/// ```rust
-/// ptr!(0xDEADBEEF, u8) = 255
-/// ```
-#[macro_export]
-macro_rules! ptr {
-    ($address:expr, $type:ty) => {
-        *($address as *mut $type)
-    };
-}
-
-/// A macro to create a DLL-Entrypoint for Windowsbinaries
-/// It takes a function to call after the injection
-///
-/// # Example:
-/// ```rust
-/// fn injected(){
-///     ...
-/// }
-/// make_entrypoint!(injected);
-/// ```
-#[cfg(windows)]
-#[macro_export]
-macro_rules! make_entrypoint {
-    ($fn:expr) => {
-        #[no_mangle]
-        pub extern "stdcall" fn DllMain(
-            _hinst_dll: winapi::shared::minwindef::HINSTANCE,
-            fdw_reason: u32,
-            _: *mut winapi::ctypes::c_void,
-        ) {
-            if fdw_reason == 1 {
-                thread::spawn($fn);
+#[cfg(test)]
+mod macro_tests {
+    use crate as chiter;
+    #[test]
+    fn test_functions() {
+        let add_one;
+        let get_random_number;
+        unsafe {
+            chiter::make_functions! {
+                0xDEADBEEF; fn add_one(i32) -> i32;
+                0xDEADBEEFu32 + 70; fn get_random_number() -> i32;
             }
         }
-    };
-}
-
-
-/// A macro to create a DLL-Entrypoint for Linuxbinaries
-/// It takes a function to call after the injection
-/// The function prototype must be extern "C" fn()
-///
-/// # Example:
-/// ```rust
-/// pub extern "C" fn injected() {
-///     ...
-/// }
-/// make_entrypoint!(injected);
-/// ```
-/// Taken from https://github.com/oberien/refunct-tas/blob/master/rtil/src/native/linux/mod.rs#L13-L17
-#[cfg(linux)]
-#[macro_export]
-macro_rules! make_entrypoint {
-    ($fn:expr) => {
-        #[link_section=".init_array"]
-        pub static INITIALIZE_CTOR: extern "C" fn() = $fn;   
     }
 }
+
+mod memory;
+
+#[cfg(target_os = "windows")]
+use kernel32::VirtualProtect;
+
+#[rustversion::nightly]
+#[cfg(feature = "detour")]
+use detour::{Function, GenericDetour};
 
 pub enum SearchError {
     NotFound,
@@ -249,5 +140,90 @@ pub fn search(
             }
             return Ok(result);
         }
+    }
+}
+
+#[cfg(windows)]
+pub struct VTable<'a> {
+    //Location of the VTable
+    adress: usize,
+    //Count of entries in VTable
+    size: usize,
+    //Internal representation of the Vtableentries
+    representation: &'a mut [usize],
+}
+
+#[cfg(windows)]
+impl<'a> VTable<'a> {
+    ///Creates a new VTable-instance for Windows
+    ///
+    /// ```adress``` is the adress of the vtable, make sure to resolve the pointer to the vtable and not just pass the class inst
+    /// ```size``` is the amount of functions held in the vtable
+    pub fn new(adress: usize, size: usize) -> VTable<'a> {
+        VTable {
+            adress: adress,
+            size: size,
+            representation: unsafe { std::slice::from_raw_parts_mut(adress as *mut usize, size) },
+        }
+    }
+
+    ///Swaps a vtable entry at the specified index
+    /// ```index``` is the index the targeted function is at
+    /// ```to_replace``` is a pointer to the function you would to inject
+    /// returns the adress of the original function, so you can call it
+    pub fn hook(&mut self, index: usize, to_replace: usize) -> Result<usize, std::string::String> {
+        if index >= self.size {
+            let error_msg: std::string::String = format!(
+                "Tried to access out of bound index {} while max was {}",
+                index,
+                self.size - 1
+            );
+            return Err(error_msg);
+        }
+
+        const PAGE_EXECUTE_READWRITE: u32 = 64;
+        let mut old_protect = 0u32;
+        let mut new_protect = 0u32;
+        //Allowing to write to vtable
+        unsafe {
+            VirtualProtect(
+                self.adress as *mut std::ffi::c_void,
+                0x400,
+                PAGE_EXECUTE_READWRITE,
+                &mut old_protect,
+            );
+        }
+        let orig_adress = self.representation[index];
+
+        self.representation[index] = to_replace;
+
+        unsafe {
+            VirtualProtect(
+                self.adress as *mut std::ffi::c_void,
+                0x400,
+                old_protect,
+                &mut new_protect,
+            );
+        }
+
+        Ok(orig_adress)
+    }
+}
+
+#[rustversion::nightly]
+#[cfg(feature = "detour")]
+pub struct Hook<T: Function> {
+    wrapped_detour: GenericDetour<T>,
+}
+
+#[rustversion::nightly]
+#[cfg(feature = "detour")]
+impl<T: Function> Hook<T> {
+    unsafe fn create_new(orig: T, new: T) -> Hook<T> {
+        let mut created = Hook::<T> {
+            wrapped_detour: GenericDetour::<T>::new(orig, new).unwrap(),
+        };
+        created.wrapped_detour.enable().unwrap();
+        created
     }
 }
