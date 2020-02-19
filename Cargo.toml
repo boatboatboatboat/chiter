@@ -1,6 +1,6 @@
 [package]
 name = "chiter"
-version = "0.4.2"
+version = "0.4.3"
 authors = ["boat <boat@cock.li>", "Fabian Brand <fabian@fabianbrand.de>"]
 description = "Memory editing library aimed at game hacking."
 repository = "https://github.com/FabianB1998/chiter-old"
